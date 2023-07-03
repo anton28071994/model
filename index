@@ -1,0 +1,110 @@
+# Интеллектуальная модель оценки размеров заработных плат на рынке труда в сфере ин-формационной безопасности
+# Шкрадюк А.Д. ИБ-19-2
+
+# Подключение библиотек
+library(randomForest)
+
+# Считывание данных
+Cyber_salaries <- read.csv("Cyber_salaries.csv")
+
+# Присваивание имен столбцам
+names(Cyber_salaries) <- c("Рабочий_год", "Уровень_опыта", "Тип_занятости", "Долж-ность", "Зарплата_в_год", "Валюта_зарплаты",  
+                           "Зарплата_в_долларах_за_год", "Местонахожде-ние_сотрудника","Удалённая_работа", "Местонахождение_компании",
+                           "Размер_компании")
+# Проверяем
+names(Cyber_salaries)
+
+# Добавляем данные о зарплатах русских сотрудников
+add_data1 <- list(2022, "SE", "FT", "Information Security Engineer", 1200000, "RUB", 16600, "RU", 0, "RU", "L")
+add_data2 <- list(2022, "MI", "FT", "Information Security Specialist", 864000, "RUB", 11940, "RU", 0, "RU", "L")
+add_data3 <- list(2022, "MI", "FT", "Information Security Specialist", 1440000, "RUB", 19900, "RU", 0, "RU", "L")
+add_data4 <- list(2022, "SE", "FT", "Information Security Engineer", 1800000, "RUB", 24875, "RU", 0, "RU", "L")
+add_data5 <- list(2022, "EX", "FT", "Information Security Engineer", 2580000, "RUB", 35655, "RU", 0, "RU", "L")
+
+# Объединение данных
+Cyber_salaries <- rbind(Cyber_salaries, add_data1, add_data2, add_data3, add_data4, add_data5)
+
+# Вывод таблиц по столбцам для дальнейшей группировки
+table(Cyber_salaries$Уровень_опыта)
+table(Cyber_salaries$Тип_занятости)
+table(Cyber_salaries$Должность)
+table(Cyber_salaries$Местонахождение_компании)
+
+# Распределение по группам
+Cyber_salaries$Уровень_опыта[Cyber_salaries$Уровень_опыта!="SE"&Cyber_salaries$Уровень_опыта!="MI"] <- "Other"
+
+Cyber_salaries$Тип_занятости[Cyber_salaries$Тип_занятости!="FT"&Cyber_salaries$Тип_занятости!="CT"] <- "Other"
+
+Cyber_salaries$Должность[Cyber_salaries$Должность!="Security Engineer"&
+                           Cyber_salaries$Должность!="Cyber Security Analyst"] <- "Other"
+
+Cyber_salaries$Местонахождение_компании[Cyber_salaries$Местонахождение_компании!="US"&
+                                          Cyber_salaries$Местонахождение_компании!="CA"&
+                                          Cyber_salaries$Местонахождение_компании!="GB"] <- "Other"
+
+# Проверка
+table(Cyber_salaries$Уровень_опыта)
+table(Cyber_salaries$Тип_занятости)
+table(Cyber_salaries$Должность)
+table(Cyber_salaries$Местонахождение_компании)
+
+# Приведение всех столбцов к типу данных factor, кроме 5,7
+Cyber_salaries[, c(1:4, 6, 8:11)] <- lapply(Cyber_salaries[, c(1:4, 6, 8:11)], function (x) as.factor(x))
+
+# Проверка
+str(Cyber_salaries)
+
+# Задаём уровни
+levels(Cyber_salaries[,2]) <- c("Middle", "Other", "Senior")
+levels(Cyber_salaries[,3]) <- c("Контракт", "Полная занятость", "Другое")
+levels(Cyber_salaries[,4]) <- c("Аналитик по кибербезопасности", "Другое", "Инженер по безопасности")
+levels(Cyber_salaries[,9]) <- c("Удалённая работа отсутствует", "Частично удалённая рабо-та", "Полностью удалённая")
+levels(Cyber_salaries[,10]) <- c("Канада", "Великобритания", "Другое", "США")
+levels(Cyber_salaries[,11]) <- c("Более 250 сотрудников", "От 50 до 250 сотрудников", "Ме-нее 50 сотрудников")
+
+# Проверка
+str(Cyber_salaries)
+
+# Смотрим годовую зарплату русских сотрудников в долларах и понимаем, что представ-лена одна некорректная цифра
+Cyber_salaries$Зарплата_в_долларах_за_год[Cyber_salaries$Валюта_зарплаты == "RUB"]
+
+# Удаляем некорректное значение в столбце Зарплата_в_долларах_за_год
+Cyber_salaries$Зарплата_в_долларах_за_год[Cyber_salaries$Зарплата_в_долларах_за_год == 2764] <- NA
+
+# Проверяем
+sum(is.na(Cyber_salaries$Зарплата_в_долларах_за_год))
+
+# Перед процедурой заполнения пропущенных данных удалим лишние столбцы
+Cyber_salaries <- Cyber_salaries[, -c(1, 5, 6, 8)]
+
+# Для удобства Занесём в переменную строку с пропущенным значением
+stringNA <- which(is.na(Cyber_salaries$Зарплата_в_долларах_за_год))
+
+# Заполнение пропусков
+table(Cyber_salaries$Уровень_опыта)
+Cyber_salaries.imputed <- rfImpute(Уровень_опыта ~ ., data=Cyber_salaries, ntree=500)
+Cyber_salaries.imputed[stringNA,]
+
+# "Посев" зерна для воспроизводимости результата
+set.seed(1567)
+
+# Создаём вектор со случайно отобранными номерами наблюдений, которые войдут в обучающую выборку
+train.num <- sample(1:nrow(Cyber_salaries.imputed), 0.8*nrow(Cyber_salaries.imputed), replace = FALSE)
+
+# Формируем обучающую выборку (~80% от исходного числа наблюдений)
+train <- Cyber_salaries.imputed[train.num, ]
+
+# Формируем контрольную выборку (~20% от исходного числа наблюдений)
+test <- Cyber_salaries.imputed[-train.num, ]
+
+# Создаём модели
+model_exp <- randomForest(Уровень_опыта ~ ., data=test, proximity = T)
+model_sal <- randomForest(Зарплата_в_долларах_за_год ~ ., data=test, proximity = T)
+model_et <- randomForest(Тип_занятости ~ ., data=test, proximity = T)
+model_jt <- randomForest(Должность ~ ., data=test, proximity = T)
+
+# Смотрим зависимости
+varImpPlot(model_exp)
+varImpPlot(model_sal)
+varImpPlot(model_et)
+varImpPlot(model_jt)
